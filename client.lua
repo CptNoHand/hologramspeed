@@ -4,10 +4,33 @@ RegisterNetEvent('HologramSpeed:SetTheme')
 -- Constants
 local ResourceName       = GetCurrentResourceName()
 local HologramURI        = string.format("nui://%s/ui/hologram.html", ResourceName)
-local AttachmentOffset   = vec3(2.5, -1, 0.85)
+local OffsetTable        = {
+	[0] = vec3(2.5, -0.8, 0.99), -- compact
+	[1] = vec3(2.5, -0.8, 0.99), -- sedan
+	[2] = vec3(2.5, -0.8, 0.99), -- SUV
+	[3] = vec3(2.5, -0.8, 0.99), -- Coupe
+	[4] = vec3(2.5, -0.8, 0.99), -- Muscle
+	[5] = vec3(2.5, -0.8, 0.99), -- Sports Classic
+	[6] = vec3(2.5, -0.8, 0.99), -- Sports
+	[7] = vec3(2.5, -0.8, 0.99), -- Super
+	[8] = vec3(1.8, -0.8, 0.99), -- Motorcycle
+	[9] = vec3(2.5, -0.8, 0.99), -- off-road
+	[10] = vec3(2.5, -0.8, 0.99), -- Industrial
+	[11] = vec3(2.5, -0.8, 0.99), -- Utility
+	[12] = vec3(2.5, -0.8, 0.99), -- Vans
+	[13] = vec3(1.8, -0.8, 0.99), -- Bicycles
+	[14] = vec3(2.5, -0.8, 0.99), -- Boats
+	[15] = vec3(2.5, -0.8, 0.99), -- Helicopters
+	[16] = vec3(2.5, -0.8, 0.99), -- Planes
+	[17] = vec3(2.5, -0.8, 0.99), -- Service
+	[18] = vec3(2.5, -0.8, 0.99), -- Emergency
+	[19] = vec3(2.5, -0.8, 0.99), -- Military
+	[20] = vec3(2.5, -0.8, 0.99), -- Commercial
+	[21] = vec3(2.5, -0.8, 0.99) -- Trains
+}
 local AttachmentRotation = vec3(0, 0, -15)
 local HologramModel      = `hologram_box_model`
-local UpdateFrequency    = 0 -- If less than average frame time, there will be an update every tick regardless of the actual number specified.
+local UpdateFrequency    = 100 -- If less than average frame time, there will be an update every tick regardless of the actual number specified.
 local SettingKey         = string.format("%s:profile", GetCurrentServerEndpoint()) -- The key to store the current theme setting in. As themes are per server, this key is also.
 local DBG                = false -- Enables debug information, not very useful unless you know what you are doing!
 
@@ -19,7 +42,7 @@ local usingMetric, shouldUseMetric = ShouldUseMetricMeasurements() -- Used to tr
 local textureReplacementMade = false -- Due to some weirdness with the experimental replace texture native, we need to make the replacement after the anchor has been spawned in-game
 
 -- Preferences
-local displayEnabled = false
+local displayEnabled = true
 local currentTheme   = GetConvar("hsp_defaultTheme", "default")
 
 local function DebugPrint(...)
@@ -47,31 +70,9 @@ RegisterNUICallback("duiIsReady", function(_, cb)
     cb({ok = true})
 end)
 
-local function LoadPlayerProfile()
-	local jsonData = GetResourceKvpString(SettingKey)
-	if jsonData ~= nil then
-		jsonData           = json.decode(jsonData)
-		displayEnabled     = jsonData.displayEnabled
-		currentTheme       = jsonData.currentTheme
-		AttachmentOffset   = vec3(jsonData.attachmentOffset.x, jsonData.attachmentOffset.y, jsonData.attachmentOffset.z)
-		AttachmentRotation = vec3(jsonData.attachmentRotation.x, jsonData.attachmentRotation.y, jsonData.attachmentRotation.z)
-	end
-end
-
-local function SavePlayerProfile()
-	local jsonData = {
-		displayEnabled     = displayEnabled,
-		currentTheme       = currentTheme,
-		attachmentOffset   = AttachmentOffset,
-		attachmentRotation = AttachmentRotation,
-	}
-	SetResourceKvp(SettingKey, json.encode(jsonData))
-end
-
 local function ToggleDisplay()
 	displayEnabled = not displayEnabled
-	SendChatMessage("Holographic speedometer " .. (displayEnabled and "^2enabled^r" or "^1disabled^r") .. ".") 
-	SavePlayerProfile()
+	SendChatMessage("Holographic speedometer " .. (displayEnabled and "^2enabled^r" or "^1disabled^r") .. ".")
 end
 
 local function SetTheme(newTheme)
@@ -79,7 +80,6 @@ local function SetTheme(newTheme)
 		EnsureDuiMessage {theme = newTheme}
 		SendChatMessage(newTheme == "default" and "Holographic speedometer theme ^5reset^r." or ("Holographic speedometer theme set to ^5" .. newTheme .. "^r."))
 		currentTheme = newTheme
-		SavePlayerProfile()
 	end
 end
 
@@ -89,7 +89,7 @@ local function UpdateEntityAttach()
 	if IsPedInAnyVehicle(playerPed) then
 		currentVehicle = GetVehiclePedIsIn(playerPed, false)
 		-- Attach the hologram to the vehicle
-		AttachEntityToEntity(hologramObject, currentVehicle, GetEntityBoneIndexByName(currentVehicle, "chassis"), AttachmentOffset, AttachmentRotation, false, false, false, false, false, true)
+		AttachEntityToEntity(hologramObject, currentVehicle, GetEntityBoneIndexByName(currentVehicle, "chassis"), GetAttachmentOffset(currentVehicle), FlipRotation(currentVehicle), false, false, false, false, false, true)
 		DebugPrint(string.format("DUI anchor %s attached to %s", hologramObject, currentVehicle))
 	end
 end
@@ -102,51 +102,72 @@ local function CheckRange(x, y, z, minVal, maxVal)
 	end
 end
 
+local function GetSideToggle()
+	local camHead = GetGameplayCamRelativeHeading()
+
+	if camHead <= -10 and camHead > -40 then
+	    return "right"
+	elseif camHead <= -40 then
+	    return "farright"
+	elseif camHead > -10 and camHead <= 40 then
+	    return "left"
+	elseif camHead > 40 then
+	    return "farleft"
+	else
+	    print("holo:GetSideToggle: Unknown Heading Math - "..camHead)
+	    return "left"
+	end
+end
+
+local function FlipRotation(veh)
+	local flop = GetSideToggle()
+
+	if flop == "left" then
+		return AttachmentRotation
+	elseif flop == "right" then
+		local posz = math.abs(AttachmentRotation.z)
+		return vec3(AttachmentRotation.x, AttachmentRotation.y, posz)
+	elseif flop == "farleft" then
+		return vec3(AttachmentRotation.x, AttachmentRotation.y, AttachmentRotation.z+75) --100
+	else
+		local posz = math.abs(AttachmentRotation.z)
+		return vec3(AttachmentRotation.x, AttachmentRotation.y, posz-75) --100
+	end
+end
+
+local function GetAttachmentOffset(veh)
+	local vehOff = OffsetTable[GetVehicleClass(veh)]
+	local lOrR = GetSideToggle()
+	--print(lOrR)
+
+	if lOrR == "left" then
+		return vehOff
+	elseif lOrR == "farleft"  then
+		return vec3(vehOff.x-0.5, vehOff.y+1.3, vehOff.z)
+	elseif lOrR == "right" then
+		local negx = (-vehOff.x)
+		return vec3(negx+1.2, vehOff.y+0.3, vehOff.z)
+	else
+		local negx = (-vehOff.x)
+		return vec3(negx+1.2, vehOff.y+0.2, vehOff.z)
+	end
+end
+
 -- Command Handler
 
 local function CommandHandler(args)
 
 	local msgErr = "^1The the acceptable range for ^0%s ^1is ^0%f^1 ~ ^0%f^1, reset to default setting.^r"
 	local msgSuc = "^2Speedometer ^0%s ^2changed to ^0%f, %f, %f^r"
-	
+
 	if args[1] == "theme" then
 		if #args >= 2 then
 			TriggerServerEvent('HologramSpeed:CheckTheme', args[2])
 		else
 			SendChatMessage("^1Invalid theme! ^0Usage: /hsp theme <name>^r")
 		end
-	elseif args[1] == "offset" then
-		local nx, ny, nz = 2.5, -1, 0.85
-		if #args >= 4 then
-			nx, ny, nz = tonumber(args[2]), tonumber(args[3]), tonumber(args[4])
-			if not CheckRange(nx, ny, nz, -5.0, 5.0) then
-				nx, ny, nz = 2.5, -1, 0.85
-				SendChatMessage(string.format(msgErr, args[1], -5.0, 5.0))
-			end
-		else
-			SendChatMessage("Offset reset. To change the offset, use: /hsp offset <X> <Y> <Z>")
-		end
-		AttachmentOffset = vec3(nx, ny, nz)
-		UpdateEntityAttach()
-		SavePlayerProfile()
-		SendChatMessage(string.format(msgSuc, args[1], nx, ny, nz))
-	elseif args[1] == "rotate" then
-		local nx, ny, nz = 0, 0, -15
-		if #args >= 4 then
-			nx, ny, nz = tonumber(args[2]), tonumber(args[3]), tonumber(args[4])
-			if not CheckRange(nx, ny, nz, -45.0, 45.0) then
-				nx, ny, nz = 0, 0, -15
-				SendChatMessage(string.format(msgErr, args[1], -45.0, 45.0))
-			end
-		else
-			SendChatMessage("Rotation reset. To change the rotation, use: /hsp rotate <X> <Y> <Z>")
-		end
-		AttachmentRotation = vec3(nx, ny, nz)
-		UpdateEntityAttach()
-		SavePlayerProfile()
-		SendChatMessage(string.format(msgSuc, args[1], nx, ny, nz))
 	else
-		SendChatMessage("^1Usage: ^0/hsp <theme|offset|rotate> [args...]^r")
+		SendChatMessage("^1Usage: ^0/hsp <theme> [args...]^r")
 	end
 end
 
@@ -158,7 +179,7 @@ end)
 
 -- Register command
 
-RegisterCommand("hsp", function(_, args)	
+RegisterCommand("hsp", function(_, args)
 	if #args == 0 then
 		ToggleDisplay()
 	else
@@ -167,10 +188,27 @@ RegisterCommand("hsp", function(_, args)
 end, false)
 
 TriggerEvent('chat:addSuggestion', '/hsp', 'Toggle the holographic speedometer', {
-    { name = "command",  help = "Allow command: theme, offset, rotate" },
+    { name = "command",  help = "Allow command: theme" },
 })
 
 RegisterKeyMapping("hsp", "Toggle Holographic Speedometer", "keyboard", "grave") -- default: `
+
+-- Hologram Creation
+function createHologram(HologramModel,currentVehicle)
+	-- Create the hologram objec
+	hologramObject = CreateVehicle(HologramModel, GetEntityCoords(currentVehicle), 0.0, false, true)
+	SetVehicleIsConsideredByPlayer(hologramObject, false)
+	SetVehicleEngineOn(hologramObject, true, true)
+	SetEntityCollision(hologramObject, false, false)
+	DebugPrint("DUI anchor created "..tostring(hologramObject))
+	return hologramObject
+end
+
+function attachHologramToVehicle(hologramObject,currentVehicle)
+	-- Attach the hologram to the vehicle
+	AttachEntityToEntity(hologramObject, currentVehicle, GetEntityBoneIndexByName(currentVehicle, "chassis"), GetAttachmentOffset(currentVehicle), FlipRotation(currentVehicle), false, false, false, false, false, true)
+	DebugPrint(string.format("DUI anchor %s attached to %s", hologramObject, currentVehicle))
+end
 
 -- Initialise the DUI. We only need to do this once.
 local function InitialiseDui()
@@ -211,18 +249,16 @@ CreateThread(function()
 		SendChatMessage("^1Could not find `hologram_box_model` in the game... ^rHave you installed the resource correctly?")
 		return
 	end
-	
-	LoadPlayerProfile()
-	
+
 	InitialiseDui()
 
 	-- This thread watches for changes to the user's preferred measurement system
-	CreateThread(function()	
+	CreateThread(function()
 		while true do
 			Wait(1000)
-	
+
 			shouldUseMetric = ShouldUseMetricMeasurements()
-	
+
 			if usingMetric ~= shouldUseMetric and EnsureDuiMessage {useMetric = shouldUseMetric} then
 				usingMetric = shouldUseMetric
 			end
@@ -264,7 +300,7 @@ CreateThread(function()
 					attachHologramToVehicle(hologramObject,currentVehicle)
 
 					-- Wait until the engine is on before enabling the hologram proper
-					repeat 
+					repeat
 						Wait(0)
 						if GetVehiclePedIsIn(playerPed, false)~=currentVehicle then
 							currentVehicle=GetVehiclePedIsIn(playerPed, false)
@@ -272,6 +308,8 @@ CreateThread(function()
 							attachHologramToVehicle(hologramObject,currentVehicle)
 						end
 					until IsVehicleEngineOn(currentVehicle)
+
+					local flipCount = 0
 
 					-- Until the player is no longer driving this vehicle, update the UI
 					repeat
@@ -286,6 +324,12 @@ CreateThread(function()
 							rawSpeed = vehicleSpeed,
 						}
 
+						flipCount = flipCount + 1
+						if flipCount >= 4 then
+							flipCount = 0
+							AttachEntityToEntity(hologramObject, currentVehicle, GetEntityBoneIndexByName(currentVehicle, "chassis"), GetAttachmentOffset(currentVehicle), FlipRotation(currentVehicle), false, false, false, false, false, true)
+						end
+
 						-- Wait for the next frame or half a second if we aren't displaying
 						Wait(displayEnabled and UpdateFrequency or 500)
 					until GetPedInVehicleSeat(currentVehicle, -1) ~= PlayerPedId()
@@ -293,7 +337,7 @@ CreateThread(function()
 			end
 		end
 
-		-- At this point, the player is no longer driving a vehicle or was never driving a vehicle this cycle 
+		-- At this point, the player is no longer driving a vehicle or was never driving a vehicle this cycle
 
 		-- If there is a hologram object currently created...
 		if hologramObject ~= 0 and DoesEntityExist(hologramObject) then
@@ -309,21 +353,7 @@ CreateThread(function()
 		Wait(1000)
 	end
 end)
-function createHologram(HologramModel,currentVehicle)
-	-- Create the hologram objec
-	hologramObject = CreateVehicle(HologramModel, GetEntityCoords(currentVehicle), 0.0, false, true)
-	SetVehicleIsConsideredByPlayer(hologramObject, false)
-	SetVehicleEngineOn(hologramObject, true, true)
-	SetEntityCollision(hologramObject, false, false)
-	DebugPrint("DUI anchor created "..tostring(hologramObject))
-	return hologramObject
-end
-function attachHologramToVehicle(hologramObject,currentVehicle)
-	-- Attach the hologram to the vehicle
-	AttachEntityToEntity(hologramObject, currentVehicle, GetEntityBoneIndexByName(currentVehicle, "chassis"), getAttachmentByVeh(currentVehicle), AttachmentRotation, false, false, false, false, false, true)
-	DebugPrint(string.format("DUI anchor %s attached to %s", hologramObject, currentVehicle))
-end
- 
+
 -- Resource cleanup
 AddEventHandler("onResourceStop", function(resource)
 	if resource == ResourceName then
